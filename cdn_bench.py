@@ -1,23 +1,22 @@
 #!/usr/bin/python
 
-import re, commands, dns.resolver, numpy, sys
+import commands, numpy, sys
 
 def ping(ip):
-    ping = commands.getstatusoutput("ping -c 1 -W 1200 -q " + ip + "|grep min")[1]
-    match = re.search(r'= (\d+\.\d+)/', ping)
-    time = float(match.group(1)) if match else -1
-    return time
-
-def nameserver_speed(nameserver, hostname):
-    resolver = dns.resolver.Resolver()
-    resolver.lifetime = 10.0
-    resolver.nameservers = [nameserver]
     try:
-        host_ip = resolver.query(hostname, 'A')[0].address
-        time = ping(host_ip)
+        time = float(commands.getstatusoutput(r"ping -c 1 -W 1200 -q " + ip + r"| sed -n 's_.*= .*/\([0-9][0-9]*\.[0-9]*\)/.*/.*_\1_p'")[1])
     except:
         time = -1
     return time
+
+def speed(nameserver, hostname):
+    try:
+        host_ip =  commands.getstatusoutput(r"host -v -c IN " + hostname + " " + nameserver + r"|sed -n 's_.*IN.*[[:space:]]\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)_\1_p'|head -1")[1]
+        dns_time = float(commands.getstatusoutput(r"host -v -c IN " + hostname + " " + nameserver + r"|sed -n 's/.* \([0-9][0-9]*\) ms/\1/p'")[1])
+        host_time = ping(host_ip)
+    except:
+        dns_time, host_time = -1, -1
+    return dns_time, host_time
 
 def main():
     nameservers = (
@@ -45,21 +44,18 @@ def main():
                  'a.tgcdn.net'                  #thinkgeek
                  )
     for nameserver in nameservers:
-        time = ping(nameserver[1])
-        if time == -1:
-            sys.stdout.write("Name server " + nameserver[0] + " unreachable\n")
-        else:
-            sys.stdout.write("{:>30} -- Nameserver speed: {:6.2f} ms -- Avg. host speed: ".format(nameserver[0], time))
-            times = []
+            dns_times = []
+            host_times = []
             unreachables = []
             for hostname in hostnames:
-                time = nameserver_speed(nameserver[1], hostname)
-                if time == -1:
+                dns_time, host_time = speed(nameserver[1], hostname)
+                if dns_time == -1 or host_time == -1:
                     unreachables.append(hostname)
                 else:
-                    times.append(time)
-            if times:
-                sys.stdout.write("{:6.2f} ms\n".format(numpy.mean(times)))
+                    dns_times.append(dns_time)
+                    host_times.append(host_time)
+            if dns_times and host_times:
+                sys.stdout.write("{:>30} -- Nameserver speed: {:6.2f} ms -- Avg. host speed: {:6.2f} ms\n".format(nameserver[0], numpy.mean(dns_times), numpy.mean(host_times)))
             else:
                 sys.stdout.write("Timed out\n")
             for unreachable in unreachables:
